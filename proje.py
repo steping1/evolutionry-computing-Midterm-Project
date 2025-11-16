@@ -214,6 +214,77 @@ def cycle_crossover(ebeveyn1, ebeveyn2):
     cocuk = Kromozom(cocuk_genler)
     return cocuk
 
+def insert_mutasyonu(kromozom):
+    """
+    Kromozoma Araya Ekleme (Insert) Mutasyonu uygular.
+    Bir geni (şehri) rastgele seçer ve başka bir rastgele 
+    pozisyona ekler.
+    
+    Not: Bu fonksiyon 'kromozom' nesnesini DOĞRUDAN değiştirir.
+    """
+    sehir_sayisi = len(kromozom.genler)
+    
+    # 1. Rastgele iki pozisyon (index) seç
+    # 'random.randrange(N)' 0'dan N-1'e kadar bir sayı seçer
+    index_i = random.randrange(sehir_sayisi)
+    index_j = random.randrange(sehir_sayisi)
+    
+    # İki index'in aynı olmamasını sağla (küçük bir optimizasyon)
+    while index_i == index_j:
+        index_j = random.randrange(sehir_sayisi)
+        
+    # 2. 'index_i'deki şehri al ve listeden (geçici olarak) çıkar
+    # .pop(index) elemanı o index'ten çıkarır VE bize döndürür
+    sehir = kromozom.genler.pop(index_i)
+    
+    # 3. Çıkarılan şehri 'index_j' pozisyonuna ekle
+    # .insert(index, eleman) elemanı o index'e ekler, diğerlerini kaydırır
+    kromozom.genler.insert(index_j, sehir)
+    
+    # 4. ÖNEMLİ: Genler değiştiği için fitness'ı yeniden hesapla
+    kromozom.fitness_hesapla()
+    
+    return kromozom # Değiştirilmiş kromozomu döndür
+
+
+def slide_mutasyonu(kromozom):
+    """
+    Kromozoma Rastgele Kaydırma (Displacement) Mutasyonu uygular.
+    Rastgele bir alt-liste (blok) seçer ve bu bloğu
+    turda başka bir rastgele pozisyona 'kaydırır'.
+    
+    Not: Bu fonksiyon 'kromozom' nesnesini DOĞRUDAN değiştirir.
+    """
+    sehir_sayisi = len(kromozom.genler)
+    
+    # 1. Rastgele bir alt-liste (blok) belirle [i...j]
+    # 'random.sample(range(N), 2)' 0-N-1 arası 2 farklı sayı seçer
+    indexler = sorted(random.sample(range(sehir_sayisi), 2))
+    i = indexler[0]
+    j = indexler[1] # j her zaman i'den büyük olacak
+    
+    # Alt-listeyi (bloğu) al
+    blok = kromozom.genler[i : j+1] # [i...j] arasındaki şehirler
+    
+    # 2. Bu bloğu turdan çıkar
+    # (Önce arkayı, sonra önü silmek index hatasını engeller)
+    del kromozom.genler[i : j+1]
+    
+    # 3. Bloğu eklemek için yeni bir rastgele pozisyon seç
+    # Kalan gen sayısı (N - (j-i+1)) içinde bir yer seç
+    yeni_pozisyon = random.randrange(len(kromozom.genler))
+    
+    # 4. Bloğu yeni pozisyona yapıştır
+    # 'list.insert' ile tek tek eklemek yerine, liste dilimleme 
+    # ile tüm bloğu tek seferde ekleyebiliriz:
+    kromozom.genler[yeni_pozisyon:yeni_pozisyon] = blok
+    
+    # 5. ÖNEMLİ: Genler değiştiği için fitness'ı yeniden hesapla
+    kromozom.fitness_hesapla()
+    
+    return kromozom # Değiştirilmiş kromozomu döndür
+
+
 # --- TEST KODLARI (SADECE BURASI ÇALIŞTIRILIR) ---
 
 if __name__ == "__main__":
