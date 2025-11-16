@@ -1,5 +1,11 @@
 import math
-import random # Artık tüm importlar en üstte
+import random
+import os
+import sys
+
+# --- GLOBAL DEĞİŞKENLER ---
+# Mesafeleri bir kez hesaplayıp burada saklayacağız (Hız için kritik)
+MESAFE_MATRISI = [] 
 
 # --- 1. ADIM: ZEMİN HAZIRLIĞI ---
 
@@ -9,37 +15,65 @@ class Sehir:
     id, x ve y koordinatlarını tutar.
     """
     def __init__(self, id, x, y):
-        self.id = int(id)
+        self.id = int(id) # ID'ler 1'den başlar
         self.x = float(x)
         self.y = float(y)
 
     def __repr__(self):
-        """
-        Bir Sehir nesnesini print() ile yazdırırken
-        daha okunaklı bir çıktı vermesi için kullanılır.
-        """
-        return f"Sehir {self.id} ({self.x}, {self.y})"
+        return f"Sehir {self.id}"
 
-def mesafe_hesapla(sehir_a, sehir_b):
+def mesafe_hesapla_oklid(sehir_a, sehir_b):
     """
-    İki Sehir nesnesi arasındaki Öklid mesafesini hesaplar.
+    Gerçek Öklid mesafesini hesaplar.
+    Bunu SADECE programın başında matrisi doldururken kullanacağız.
     """
     return math.sqrt((sehir_a.x - sehir_b.x)**2 + (sehir_a.y - sehir_b.y)**2)
 
+def matrisi_doldur(sehirler):
+    """
+    Tüm şehirler arası mesafeleri hesaplayıp global bir matrise kaydeder.
+    Bu işlem O(N^2) sürer ama sonraki milyarlarca sorguyu O(1) yapar.
+    """
+    global MESAFE_MATRISI
+    boyut = len(sehirler)
+    # ID'ler 1'den başladığı için erişim kolaylığı adına ID'leri index olarak kullanacağız.
+    # Bu yüzden şehir sayısı kadar (0'dan N-1'e) bir matris oluşturuyoruz.
+    # Şehir ID'sine erişirken -1 yapacağız.
+    
+    MESAFE_MATRISI = [[0.0] * boyut for _ in range(boyut)]
+    
+    # Sehir listesindeki sıraya göre matrisi doldur
+    for i in range(boyut):
+        for j in range(boyut):
+            dist = mesafe_hesapla_oklid(sehirler[i], sehirler[j])
+            # sehirler[i].id kullanmak yerine listenin indexini kullanıyoruz
+            # Çünkü sehirler listesi zaten sıralı okunuyor.
+            MESAFE_MATRISI[sehirler[i].id - 1][sehirler[j].id - 1] = dist
+            
+    print(f"-> {boyut}x{boyut} boyutunda Mesafe Matrisi önceden hesaplandı (RAM'e yüklendi).")
+
+def hizli_mesafe_al(sehir_a, sehir_b):
+    """
+    Matristen hazır hesaplanmış mesafeyi ışık hızında çeker.
+    """
+    global MESAFE_MATRISI
+    # ID'ler 1 tabanlı, liste indexleri 0 tabanlı olduğu için -1 çıkarıyoruz
+    return MESAFE_MATRISI[sehir_a.id - 1][sehir_b.id - 1]
+
 def dosyadan_oku(dosya_yolu):
     """
-    Bir .tsp dosyasını okur, şehirleri ayrıştırır 
-    ve bir Sehir nesneleri listesi döndürür.
+    Bir .tsp dosyasını okur, şehirleri ayrıştırır.
     """
     sehirler = []
     veri_bolumu_basladi = False
     
+    if not os.path.exists(dosya_yolu):
+        return []
+
     with open(dosya_yolu, 'r') as f:
         for satir in f:
             satir = satir.strip() 
-
-            if satir == "EOF":
-                break 
+            if satir == "EOF": break 
                 
             if veri_bolumu_basladi:
                 parcalar = satir.split()
@@ -57,521 +91,318 @@ def dosyadan_oku(dosya_yolu):
 class Kromozom:
     """
     Bir çözüm adayını (turu) temsil eder.
-    'genler' listesi, şehirlerin ziyaret sırasını tutar.
-    'fitness' ise bu turun toplam mesafesidir.
     """
     def __init__(self, genler):
-        self.genler = genler # genler, Sehir nesnelerinin bir listesidir
-        self.fitness = 0.0 # Başlangıçta fitness (mesafe) 0
-        self.fitness_hesapla() # Kromozom oluşur oluşmaz fitness'ını hesapla
+        self.genler = genler 
+        self.fitness = 0.0 
+        self.fitness_hesapla() # Oluşur oluşmaz hesapla
 
     def __repr__(self):
-        """
-        Kromozomu daha okunaklı yazdırmak için.
-        """
-        # Sadece şehir ID'lerini gösterelim
         tur_sirasi = " -> ".join([str(sehir.id) for sehir in self.genler])
-        # Fitness'ı daha net görmek için turu kısa kesebiliriz:
         if len(self.genler) > 5:
              tur_sirasi = " -> ".join([str(sehir.id) for sehir in self.genler[:3]]) + "..." + " -> ".join([str(sehir.id) for sehir in self.genler[-2:]])
-
         return f"[Fitness: {self.fitness:.2f}] | Tur: {tur_sirasi}"
     
     def kopyala(self):
-        """
-        Bu kromozomun birebir aynı,
-        ancak bağımsız bir kopyasını oluşturur.
-        """
-        # genler listesinin bir kopyasını al
         gen_kopyasi = self.genler[:] 
-        
-        # Bu kopya gen listesiyle yeni bir Kromozom nesnesi oluştur
-        # (Bu nesne, __init__ sayesinde kendi fitness'ını hesaplayacaktır)
         return Kromozom(gen_kopyasi)
 
     def fitness_hesapla(self):
         """
-        Bu kromozomun (turun) toplam mesafesini (fitness) hesaplar.
+        Bu kromozomun (turun) toplam mesafesini HIZLI matris ile hesaplar.
         """
         toplam_mesafe = 0.0
+        uzunluk = len(self.genler)
         
-        for i in range(len(self.genler) - 1):
+        for i in range(uzunluk):
             sehir_suanki = self.genler[i]
-            sehir_sonraki = self.genler[i+1]
-            toplam_mesafe += mesafe_hesapla(sehir_suanki, sehir_sonraki)
+            # Modülo operatörü (%) ile son şehri ilk şehre bağlarız
+            sehir_sonraki = self.genler[(i + 1) % uzunluk]
             
-        sehir_son = self.genler[-1]
-        sehir_ilk = self.genler[0]
-        toplam_mesafe += mesafe_hesapla(sehir_son, sehir_ilk)
+            # BURASI DEĞİŞTİ: Karekök yerine matristen okuyoruz
+            toplam_mesafe += hizli_mesafe_al(sehir_suanki, sehir_sonraki)
         
         self.fitness = toplam_mesafe
         return toplam_mesafe
 
-
-
-# --- 3. ADIM: BAŞLANGIÇ ---
+# --- 3. ADIM: BAŞLANGIÇ POPÜLASYONU ---
 
 def ilk_populasyonu_olustur(tum_sehirler, populasyon_buyuklugu):
-    """
-    Verilen şehir listesini kullanarak rastgele karıştırılmış
-    kromozomlardan oluşan bir başlangıç popülasyonu oluşturur.
-    """
     populasyon = []
-    
     for _ in range(populasyon_buyuklugu):
-        # tum_sehirler listesini rastgele karıştırılmış BİR KOPYASINI oluştur
-        # 'random.sample(liste, k)' k elemanlı rastgele bir kopya seçer.
-        # k=len(liste) dersek, listenin tamamının rastgele karışık bir kopyasını alırız.
-        
-        # Bu yöntem, 'tum_sehirler' orijinal listesini bozmamızı engeller.
         rastgele_genler = random.sample(tum_sehirler, len(tum_sehirler))
-        
-        # Bu rastgele gen listesiyle yeni bir kromozom oluştur
         yeni_kromozom = Kromozom(rastgele_genler)
-        
-        # Yeni kromozomu popülasyona ekle
         populasyon.append(yeni_kromozom)
-        
     return populasyon
 
+# --- 4. ADIM: SEÇİLİM OPERATÖRLERİ ---
+
 def rulet_tekeri_secilimi(populasyon):
-    """
-    Popülasyon içinden fitness'a göre ağırlıklı (rulet tekeri) 
-    bir ebeveyn seçer. (Minimizasyon problemine uyarlanmıştır).
-    """
-    
-    # 1. Fitness'ı tersine çevir (skor oluştur)
-    # En kötü (en yüksek) fitness'ı bul
     en_kotu_fitness = max(k.fitness for k in populasyon)
-    
-    # Her kromozom için bir ağırlık hesapla:
-    # Ağırlık = (En Kötü Fitness - Kromozomun Fitness'ı) + 1
-    # (+1 ekleyerek en kötü çözümün bile 0 ağırlık almasını engelleriz)
     agirliklar = []
     for kromozom in populasyon:
-        # En iyi kromozom (düşük fitness) en yüksek ağırlığı alacak
         agirlik = (en_kotu_fitness - kromozom.fitness) + 1
         agirliklar.append(agirlik)
-        
-    # 2. Ağırlıklı rastgele seçim yap
-    # 'random.choices' bu işi bizim için yapar.
-    # weights=agirliklar parametresi, 'populasyon' listesindeki
-    # her elemanın 'agirliklar' listesindeki karşılığına göre
-    # seçilme şansını belirler. k=1 bir tane seç demektir.
     secilen_ebeveyn = random.choices(populasyon, weights=agirliklar, k=1)[0]
-    
     return secilen_ebeveyn
 
 def sira_temelli_secilim(populasyon):
-    """
-    Popülasyonu fitness'a göre sıralar ve bu sıraya göre
-    ağırlıklı bir ebeveyn seçer. (Minimizasyon)
-    """
-    
-    # 1. Popülasyonu fitness'a göre sırala (en iyiden en kötüye)
-    # (Düşük fitness = iyi, bu yüzden 'key' normal)
     sirali_populasyon = sorted(populasyon, key=lambda k: k.fitness)
-    
-    # 2. Ağırlıkları oluştur (Rank (Sıra) puanları)
-    # En iyi (index 0) -> N puan (örn: 100)
-    # En kötü (index N-1) -> 1 puan
-    # list(range(100, 0, -1)) -> [100, 99, 98, ..., 1]
     pop_boyutu = len(sirali_populasyon)
     agirliklar = list(range(pop_boyutu, 0, -1))
-    
-    # 3. Sıralı popülasyona ve sıra ağırlıklarına göre seçim yap
     secilen_ebeveyn = random.choices(sirali_populasyon, weights=agirliklar, k=1)[0]
-    
     return secilen_ebeveyn
 
+# --- 5. ADIM: ÇAPRAZLAMA (CROSSOVER) ---
+
 def cycle_crossover(ebeveyn1, ebeveyn2):
-    """
-    İki ebeveyn kromozoma Döngü Çaprazlaması (Cycle Crossover - CX) uygular
-    ve bir çocuk kromozom döndürür.
-    """
     sehir_sayisi = len(ebeveyn1.genler)
-    
-    # 1. Çocuğun gen listesini boş (None) olarak başlat
     cocuk_genler = [None] * sehir_sayisi
     
-    # 2. Döngüleri bulmak için Ebeveyn 1'in genlerini bir 
-    #    sözlüğe (map) alalım (Sehir -> Index). 
-    #    Bu, arama işlemini çok hızlandırır.
+    # Hız optimizasyonu: Şehir nesnesini anahtar olarak kullan
     ebeveyn1_pozisyon_map = {sehir: index for index, sehir in enumerate(ebeveyn1.genler)}
 
-    # 3. Döngüleri bul ve çocuğu oluştur
-    
-    # Başlangıç index'i (0) ile ilk döngüye başla
     index = 0
     while cocuk_genler[index] is None:
-        # Döngüdeki elemanları Ebeveyn 1'den al
         cocuk_genler[index] = ebeveyn1.genler[index]
-        
-        # Ebeveyn 2'de aynı index'teki şehir hangisi?
         ebeveyn2_sehri = ebeveyn2.genler[index]
-        
-        # Bu şehrin Ebeveyn 1'deki pozisyonunu (index'ini) bul
         index = ebeveyn1_pozisyon_map[ebeveyn2_sehri]
-        
-        # Eğer bu index'teki şehir çocuğa zaten eklendiyse, döngü tamamlanmıştır.
-        # Başa dön (while cocuk_genler[index] is None)
 
-    # 4. Döngü tamamlandı. Çocuktaki tüm boş (None) yerleri
-    #    Ebeveyn 2'den, aynı pozisyondan alarak doldur.
     for i in range(sehir_sayisi):
         if cocuk_genler[i] is None:
             cocuk_genler[i] = ebeveyn2.genler[i]
             
-    # 5. Yeni gen listesiyle bir çocuk Kromozom nesnesi oluştur
     cocuk = Kromozom(cocuk_genler)
     return cocuk
 
+# --- 6. ADIM: MUTASYON OPERATÖRLERİ ---
+
 def insert_mutasyonu(kromozom):
-    """
-    Kromozoma Araya Ekleme (Insert) Mutasyonu uygular.
-    Bir geni (şehri) rastgele seçer ve başka bir rastgele 
-    pozisyona ekler.
-    
-    Not: Bu fonksiyon 'kromozom' nesnesini DOĞRUDAN değiştirir.
-    """
     sehir_sayisi = len(kromozom.genler)
+    if sehir_sayisi < 2: return
     
-    # 1. Rastgele iki pozisyon (index) seç
-    # 'random.randrange(N)' 0'dan N-1'e kadar bir sayı seçer
     index_i = random.randrange(sehir_sayisi)
     index_j = random.randrange(sehir_sayisi)
-    
-    # İki index'in aynı olmamasını sağla (küçük bir optimizasyon)
     while index_i == index_j:
         index_j = random.randrange(sehir_sayisi)
         
-    # 2. 'index_i'deki şehri al ve listeden (geçici olarak) çıkar
-    # .pop(index) elemanı o index'ten çıkarır VE bize döndürür
     sehir = kromozom.genler.pop(index_i)
-    
-    # 3. Çıkarılan şehri 'index_j' pozisyonuna ekle
-    # .insert(index, eleman) elemanı o index'e ekler, diğerlerini kaydırır
     kromozom.genler.insert(index_j, sehir)
-    
-    # 4. ÖNEMLİ: Genler değiştiği için fitness'ı yeniden hesapla
     kromozom.fitness_hesapla()
-    
-    return kromozom # Değiştirilmiş kromozomu döndür
-
 
 def slide_mutasyonu(kromozom):
-    """
-    Kromozoma Rastgele Kaydırma (Displacement) Mutasyonu uygular.
-    Rastgele bir alt-liste (blok) seçer ve bu bloğu
-    turda başka bir rastgele pozisyona 'kaydırır'.
-    
-    Not: Bu fonksiyon 'kromozom' nesnesini DOĞRUDAN değiştirir.
-    """
     sehir_sayisi = len(kromozom.genler)
-    
-    # (Hata önleme: Eğer şehir sayısı çok küçükse, 
-    #  random.sample hata verebilir, 
-    #  gerçi 52 şehirde bu olmaz ama güvenli kod iyidir)
-    if sehir_sayisi < 2:
-        return kromozom 
+    if sehir_sayisi < 2: return
 
-    # 1. Rastgele bir alt-liste (blok) belirle [i...j]
     indexler = sorted(random.sample(range(sehir_sayisi), 2))
     i = indexler[0]
-    j = indexler[1] # j her zaman i'den büyük olacak
+    j = indexler[1]
     
-    # Alt-listeyi (bloğu) al
-    blok = kromozom.genler[i : j+1] # [i...j] arasındaki şehirler
-    
-    # 2. Bu bloğu turdan çıkar
+    blok = kromozom.genler[i : j+1]
     del kromozom.genler[i : j+1]
     
-    # 3. Bloğu eklemek için yeni bir rastgele pozisyon seç
-    
-    # HATALI KOD:
-    # yeni_pozisyon = random.randrange(len(kromozom.genler))
-    
-    # DÜZELTİLMİŞ KOD:
-    # Kalan listenin uzunluğu 0 bile olsa (len(genler)=0),
-    # randrange(0 + 1) -> randrange(1) -> 0 döndürür.
-    # Bu da bloğun 0. index'e (boş listeye) eklenmesini sağlar.
+    # Düzeltilmiş mantık (Boş liste hatasını önlemek için +1)
     yeni_pozisyon = random.randrange(len(kromozom.genler) + 1)
     
-    # 4. Bloğu yeni pozisyona yapıştır
     kromozom.genler[yeni_pozisyon:yeni_pozisyon] = blok
-    
-    # 5. ÖNEMLİ: Genler değiştiği için fitness'ı yeniden hesapla
     kromozom.fitness_hesapla()
-    
-    return kromozom # Değiştirilmiş kromozomu döndür
+
+# --- BONUS ADIMLARI: 2-OPT ve 3-OPT (HIZLANDIRILMIŞ) ---
 
 def iki_opt(kromozom):
     """
-    Bir kromozoma (tura) 2-opt yerel optimizasyonunu uygular.
-    Turda iyileşme kalmayana kadar (lokal optimum) devam eder.
-    
+    2-opt optimizasyonu. Hızlandırılmış matris kullanımı ile.
     """
-    # 1. Kromozomun bağımsız bir kopyasını alalım
-    # (Orijinalini bozmamak en güvenli yoldur)
     yeni_krom = kromozom.kopyala()
-    sehir_sayisi = len(yeni_krom.genler)
+    genler = yeni_krom.genler
+    N = len(genler)
+    iyilesme = True
     
-    # 'iyilesme_var' bayrağı, o turda bir değişiklik 
-    # yapılıp yapılmadığını takip eder
-    iyilesme_var = True
-    
-    while iyilesme_var:
-        iyilesme_var = False # Bu turda iyileşme olmazsa döngü biter
-        
-        # 2. Tüm kenar çiftlerini (i ve j) gez
-        # (Dolanma (wrap-around) kenarını (son->ilk) 
-        #  basitlik için ihmal ediyoruz, ama etkisi büyük olacaktır)
-        
-        for i in range(sehir_sayisi - 2): # i: 0'dan N-3'e
-            for j in range(i + 2, sehir_sayisi - 1): # j: (i+2)'den N-2'ye
+    while iyilesme:
+        iyilesme = False
+        for i in range(N - 2):
+            A = genler[i]
+            B = genler[i+1]
+            for j in range(i + 2, N - 1): # Wrap-around ihmali (basitlik için N-1)
+                C = genler[j]
+                D = genler[j+1]
                 
-                # Kenar 1: (i) -> (i+1)
-                # Kenar 2: (j) -> (j+1)
+                # Matristen çek (HIZLI)
+                eski_dist = hizli_mesafe_al(A, B) + hizli_mesafe_al(C, D)
+                yeni_dist = hizli_mesafe_al(A, C) + hizli_mesafe_al(B, D)
                 
-                # Mevcut kenarların şehirleri
-                A = yeni_krom.genler[i]
-                B = yeni_krom.genler[i+1]
-                C = yeni_krom.genler[j]
-                D = yeni_krom.genler[j+1]
-                
-                # 3. İyileşme kontrolü
-                mevcut_mesafe = mesafe_hesapla(A, B) + mesafe_hesapla(C, D)
-                yeni_mesafe = mesafe_hesapla(A, C) + mesafe_hesapla(B, D)
-                
-                if yeni_mesafe < mevcut_mesafe:
-                    # İyileşme bulundu!
-                    # Kenarları değiştir (A-C ve B-D)
-                    # Bunu yapmak için (i+1) ... (j) arasındaki 
-                    # tüm segmenti TERS ÇEVİRmemiz gerekir.
-                    
-                    # [A] -> [B ... C] -> [D]
-                    # Yeni tur:
-                    # [A] -> [C ... B] -> [D]
-                    
-                    yeni_krom.genler[i+1 : j+1] = reversed(yeni_krom.genler[i+1 : j+1])
-                    
-                    # Tur değişti, fitness'ı HESAPLAMALIYIZ
-                    # (Not: Daha hızlı bir yol sadece farkı hesaplamaktır,
-                    #  ancak bu daha güvenli ve okunaklıdır)
-                    yeni_krom.fitness_hesapla()
-                    
-                    # İyileşme olduğunu işaretle
-                    iyilesme_var = True
-                    
-                    # "First Improvement" stratejisi:
-                    # Bir iyileşme bulduğumuz an, 'j' ve 'i' 
-                    # döngülerini kırıp 'while' döngüsüne 
-                    # (en başa) dönüyoruz.
-                    break
-            if iyilesme_var:
-                break
-                
-    # While döngüsü bittiğinde (hiç iyileşme bulunamadığında)
-    # optimize edilmiş kopyayı döndür
+                if yeni_dist < eski_dist:
+                    genler[i+1 : j+1] = reversed(genler[i+1 : j+1])
+                    iyilesme = True
+                    # First Improvement: Bulduğunda dön
+                    break 
+            if iyilesme: break
+            
+    yeni_krom.fitness_hesapla()
     return yeni_krom
 
 def uc_opt(kromozom):
     """
-    Bir kromozoma (tura) 3-opt yerel optimizasyonunu uygular.
-    2-opt'tan çok daha yavaştır ancak daha iyi sonuçlar verebilir.
-    
-    [BONUS +15 PUAN]
+    3-opt optimizasyonu. 
+    Matris kullanımı sayesinde O(N^3) olmasına rağmen çok daha hızlı çalışacaktır.
     """
     yeni_krom = kromozom.kopyala()
-    sehir_sayisi = len(yeni_krom.genler)
+    genler = yeni_krom.genler
+    N = len(genler)
+    iyilesme = True
     
-    iyilesme_var = True
-    
-    while iyilesme_var:
-        iyilesme_var = False
+    # Sonsuz döngü riskine karşı tur limiti
+    max_tur = 50 
+    tur_sayisi = 0
+
+    while iyilesme and tur_sayisi < max_tur:
+        iyilesme = False
+        tur_sayisi += 1
         
-        # Üç kenarı seçmek için üç döngü
-        # (i, i+1), (j, j+1), (k, k+1)
-        for i in range(sehir_sayisi - 4):
-            for j in range(i + 2, sehir_sayisi - 2):
-                for k in range(j + 2, sehir_sayisi):
+        for i in range(N - 4):
+            for j in range(i + 2, N - 2):
+                for k in range(j + 2, N - 1): # k, N-1'e kadar (Wrap-around basitleştirme)
                     
-                    # 3 kenarı tanımlayan 6 nokta
-                    A, B = yeni_krom.genler[i], yeni_krom.genler[i+1]
-                    C, D = yeni_krom.genler[j], yeni_krom.genler[j+1]
-                    E, F = yeni_krom.genler[k], yeni_krom.genler[(k+1) % sehir_sayisi] # Son kenar için %N
+                    k_next = k + 1
                     
-                    # 7 farklı durumu test et (d0 orijinal)
-                    d0 = mesafe_hesapla(A,B) + mesafe_hesapla(C,D) + mesafe_hesapla(E,F)
+                    # Kenar noktaları
+                    A, B = genler[i], genler[i+1]
+                    C, D = genler[j], genler[j+1]
+                    E, F = genler[k], genler[k_next]
                     
-                    # 2-opt durumları (3-opt içinde de bulunur)
-                    d1 = mesafe_hesapla(A,C) + mesafe_hesapla(B,D) + mesafe_hesapla(E,F) # 2-opt (i,j)
-                    d2 = mesafe_hesapla(A,B) + mesafe_hesapla(C,E) + mesafe_hesapla(D,F) # 2-opt (j,k)
-                    d3 = mesafe_hesapla(A,E) + mesafe_hesapla(D,F) + mesafe_hesapla(C,B) # 2-opt (i,k)
+                    # Mevcut mesafe (sadece 3 kenar) - MATRİSTEN OKU
+                    d0 = hizli_mesafe_al(A,B) + hizli_mesafe_al(C,D) + hizli_mesafe_al(E,F)
                     
-                    # 3-opt durumları (asıl güçlü olanlar)
-                    d4 = mesafe_hesapla(A,C) + mesafe_hesapla(B,E) + mesafe_hesapla(D,F)
-                    d5 = mesafe_hesapla(A,E) + mesafe_hesapla(D,B) + mesafe_hesapla(C,F)
-                    d6 = mesafe_hesapla(A,D) + mesafe_hesapla(C,E) + mesafe_hesapla(B,F)
-                    d7 = mesafe_hesapla(A,D) + mesafe_hesapla(C,F) + mesafe_hesapla(B,E)
+                    # Olası 7 hamle için mesafeler (matristen çekildiği için çok hızlı)
+                    # 2-opt hamleleri
+                    d1 = hizli_mesafe_al(A,C) + hizli_mesafe_al(B,D) + hizli_mesafe_al(E,F)
+                    d2 = hizli_mesafe_al(A,B) + hizli_mesafe_al(C,E) + hizli_mesafe_al(D,F)
+                    d3 = hizli_mesafe_al(A,E) + hizli_mesafe_al(D,F) + hizli_mesafe_al(C,B)
+                    # 3-opt hamleleri
+                    d4 = hizli_mesafe_al(A,C) + hizli_mesafe_al(B,E) + hizli_mesafe_al(D,F)
+                    d5 = hizli_mesafe_al(A,E) + hizli_mesafe_al(D,B) + hizli_mesafe_al(C,F)
+                    d6 = hizli_mesafe_al(A,D) + hizli_mesafe_al(C,E) + hizli_mesafe_al(B,F)
+                    d7 = hizli_mesafe_al(A,D) + hizli_mesafe_al(C,F) + hizli_mesafe_al(B,E)
 
-                    
-                    # En iyi değişikliği bul
-                    if d1 < d0:
-                        # 2-opt (i,j) -> [i+1...j] segmentini ters çevir
-                        yeni_krom.genler[i+1 : j+1] = reversed(yeni_krom.genler[i+1 : j+1])
-                        iyilesme_var = True
-                    elif d2 < d0:
-                        # 2-opt (j,k) -> [j+1...k] segmentini ters çevir
-                        yeni_krom.genler[j+1 : k+1] = reversed(yeni_krom.genler[j+1 : k+1])
-                        iyilesme_var = True
-                    elif d3 < d0:
-                        # 2-opt (i,k) -> [i+1...k] segmentini ters çevir
-                        yeni_krom.genler[i+1 : k+1] = reversed(yeni_krom.genler[i+1 : k+1])
-                        iyilesme_var = True
-                    elif d4 < d0:
-                        # 3-opt (A-C B-E D-F)
-                        yeni_krom.genler[i+1 : k+1] = yeni_krom.genler[j+1:k+1] + yeni_krom.genler[i+1:j+1]
-                        iyilesme_var = True
-                    elif d5 < d0:
-                        # 3-opt (A-E D-B C-F)
-                        yeni_krom.genler[i+1 : k+1] = list(reversed(yeni_krom.genler[i+1:j+1])) + list(reversed(yeni_krom.genler[j+1:k+1]))
-                        iyilesme_var = True
-                    elif d6 < d0:
-                        # 3-opt (A-D C-E B-F)
-                        yeni_krom.genler[i+1 : k+1] = list(reversed(yeni_krom.genler[j+1:k+1])) + yeni_krom.genler[i+1:j+1]
-                        iyilesme_var = True
-                    elif d7 < d0:
-                        # 3-opt (A-D C-F B-E)
-                        yeni_krom.genler[i+1 : k+1] = yeni_krom.genler[j+1:k+1] + list(reversed(yeni_krom.genler[i+1:j+1]))
-                        iyilesme_var = True
+                    move = 0
+                    # En iyi iyileştirmeyi bul (Greedy)
+                    if d1 < d0: move = 1; d0 = d1
+                    if d2 < d0: move = 2; d0 = d2
+                    if d3 < d0: move = 3; d0 = d3
+                    if d4 < d0: move = 4; d0 = d4
+                    if d5 < d0: move = 5; d0 = d5
+                    if d6 < d0: move = 6; d0 = d6
+                    if d7 < d0: move = 7; d0 = d7
 
-                    if iyilesme_var:
-                        yeni_krom.fitness_hesapla()
-                        # "First Improvement" stratejisi:
-                        # İyileşme bulunduğu an döngüleri kır ve 
-                        # 'while' başına (en başa) dön
-                        break
-                if iyilesme_var:
-                    break
-            if iyilesme_var:
-                break
-                
+                    if move > 0:
+                        # Hamleyi uygula (Liste dilimleme işlemleri)
+                        if move == 1: genler[i+1:j+1] = reversed(genler[i+1:j+1])
+                        elif move == 2: genler[j+1:k+1] = reversed(genler[j+1:k+1])
+                        elif move == 3: genler[i+1:k+1] = reversed(genler[i+1:k+1])
+                        elif move == 4: genler[i+1:k+1] = genler[j+1:k+1] + genler[i+1:j+1]
+                        elif move == 5: genler[i+1:k+1] = list(reversed(genler[i+1:j+1])) + list(reversed(genler[j+1:k+1]))
+                        elif move == 6: genler[i+1:k+1] = list(reversed(genler[j+1:k+1])) + genler[i+1:j+1]
+                        elif move == 7: genler[i+1:k+1] = genler[j+1:k+1] + list(reversed(genler[i+1:j+1]))
+                        
+                        iyilesme = True
+                        break # First Improvement: İç döngüden çık
+                if iyilesme: break
+            if iyilesme: break
+            
+    yeni_krom.fitness_hesapla()
     return yeni_krom
 
-# --- 7. ADIM: ANA ALGORİTMA DÖNGÜSÜ ---
+
+# --- 7. ANA ALGORİTMA DÖNGÜSÜ ---
 
 if __name__ == "__main__":
     
-    # --- 1. Parametreler ve Hazırlık ---
+    # 1. Dosyayı Belirle
     DOSYA_ADI = "berlin52.tsp"
-    POPULASYON_BUYUKLUGU = 100
-    NESIL_SAYISI_LIMITI = 100            # Sonlanma Kriteri 1 [cite: 39]
-    IYILESME_OLMAYAN_LIMIT = 5          # Sonlanma Kriteri 2 [cite: 40]
-
-    print("--- Evrimsel Algoritma Başlatılıyor ---")
-    print(f"Problem: {DOSYA_ADI}")
-    print(f"Popülasyon Büyüklüğü: {POPULASYON_BUYUKLUGU}")
-    print(f"Sonlanma Kriterleri: {NESIL_SAYISI_LIMITI} Nesil VEYA {IYILESME_OLMAYAN_LIMIT} nesil iyileşmeme.")
-    print("-" * 40)
-
-    # 1.1. Şehirleri Oku
+    
+    # 2. Dosyayı Oku
     tum_sehirler = dosyadan_oku(DOSYA_ADI)
     if not tum_sehirler:
-        print("HATA: Şehirler okunamadı. Program sonlandırılıyor.")
-        exit()
+        print(f"HATA: '{DOSYA_ADI}' dosyası bulunamadı.")
+        print("Lütfen dosyanın bu python dosyasıyla aynı klasörde olduğundan emin olun.")
+        sys.exit()
+
+    # 3. KRİTİK ADIM: MATRİSİ DOLDUR (Bu olmazsa çok yavaşlar)
+    matrisi_doldur(tum_sehirler)
+
+    # 4. Parametreler
+    POPULASYON_BUYUKLUGU = 100
+    NESIL_SAYISI_LIMITI = 100            
+    IYILESME_OLMAYAN_LIMIT = 5          
+
+    print("\n--- Evrimsel Algoritma Başlatılıyor ---")
+    print(f"Problem: {DOSYA_ADI}")
+    print(f"Popülasyon Büyüklüğü: {POPULASYON_BUYUKLUGU}")
+    print("-" * 40)
         
-    # 1.2. İlk Popülasyonu Oluştur
+    # 5. GA Başlat
     mevcut_populasyon = ilk_populasyonu_olustur(tum_sehirler, POPULASYON_BUYUKLUGU)
-    
-    # 1.3. Global en iyi çözümü (pristine copy) sakla
     global_en_iyi = min(mevcut_populasyon, key=lambda k: k.fitness).kopyala()
     
     iyilesmeyen_nesil_sayisi = 0
 
-    # --- 2. Ana Evrim Döngüsü (Iterations) ---
+    # 6. İterasyonlar
     for nesil_no in range(1, NESIL_SAYISI_LIMITI + 1):
         
-        # 2.1. Bu neslin en iyisini bul
         bu_neslin_en_iyisi = min(mevcut_populasyon, key=lambda k: k.fitness)
         
-        # 2.2. Global en iyiyi güncelle
         if bu_neslin_en_iyisi.fitness < global_en_iyi.fitness:
-            global_en_iyi = bu_neslin_en_iyisi.kopyala() # Kopyasını sakla
-            iyilesmeyen_nesil_sayisi = 0 # Sayaç sıfırla
+            global_en_iyi = bu_neslin_en_iyisi.kopyala() 
+            iyilesmeyen_nesil_sayisi = 0
         else:
             iyilesmeyen_nesil_sayisi += 1
         
-        # 2.3. Çıktı (Proje bunu istiyor) [cite: 41]
         print(f"Nesil {nesil_no:3} | En İyi Mesafe: {global_en_iyi.fitness:<10.2f} | (İyileşmeyen: {iyilesmeyen_nesil_sayisi})")
         
-        # 2.4. Sonlanma Kriteri Kontrolü (Hangisi önce gelirse)
         if iyilesmeyen_nesil_sayisi >= IYILESME_OLMAYAN_LIMIT:
             print(f"\nSonlanma: {IYILESME_OLMAYAN_LIMIT} nesildir iyileşme olmadı.")
             break
         
-        # --- 3. Yeni Popülasyonu Oluşturma ---
+        # Yeni Nesil Üretimi
         yeni_populasyon = []
+        yeni_populasyon.append(global_en_iyi.kopyala()) # Elitizm
         
-        # 3.1. Elitizm: En iyi çözümü kopyalayarak doğrudan aktar 
-        yeni_populasyon.append(global_en_iyi.kopyala())
-        
-        # 3.2. Kalan 99 bireyi (çocuğu) üret [cite: 29]
         while len(yeni_populasyon) < POPULASYON_BUYUKLUGU:
-            
-            # 3.2.1. Ebeveyn Seçimi (50% Rank, 50% Roulette)
             if len(yeni_populasyon) <= (POPULASYON_BUYUKLUGU / 2):
-                # İlk %50'yi Sıra Temelli (Rank Based) ile seç [cite: 31]
-                ebeveyn1 = sira_temelli_secilim(mevcut_populasyon)
-                ebeveyn2 = sira_temelli_secilim(mevcut_populasyon)
+                e1, e2 = sira_temelli_secilim(mevcut_populasyon), sira_temelli_secilim(mevcut_populasyon)
             else:
-                # Kalan %50'yi Rulet Tekeri (Roulette) ile seç [cite: 32]
-                ebeveyn1 = rulet_tekeri_secilimi(mevcut_populasyon)
-                ebeveyn2 = rulet_tekeri_secilimi(mevcut_populasyon)
+                e1, e2 = rulet_tekeri_secilimi(mevcut_populasyon), rulet_tekeri_secilimi(mevcut_populasyon)
             
-            # 3.2.2. Çaprazlama (Cycle Crossover) [cite: 33]
-            cocuk = cycle_crossover(ebeveyn1, ebeveyn2)
+            cocuk = cycle_crossover(e1, e2)
             
-            # 3.2.3. Mutasyon (50% Insert, 50% Slide)
-            if random.random() < 0.5:
-                # %50 Insert Mutasyonu [cite: 35]
-                insert_mutasyonu(cocuk) 
-            else:
-                # %50 Random Slide Mutasyonu [cite: 36]
-                slide_mutasyonu(cocuk)
+            if random.random() < 0.5: insert_mutasyonu(cocuk)
+            else: slide_mutasyonu(cocuk)
             
-            # 3.2.4. Çocuğu yeni popülasyona ekle
             yeni_populasyon.append(cocuk)
             
-        # 3.3. Popülasyonu güncelle
         mevcut_populasyon = yeni_populasyon
     
-  # --- 4. Final Sonuçlar ---
+    # 7. Sonuçlar
     print("-" * 40)
     print("Evrimsel Algoritma Tamamlandı.")
     print(f"GA Sonucu (2-opt öncesi) En İyi Mesafe: {global_en_iyi.fitness:.2f}")
 
-    # --- 8. Adım (BONUS): 2-Opt İyileştirmesi ---
+    # 8. Bonus: 2-opt
     print("\n--- 2-Opt (Bonus) İyileştirmesi Başlatılıyor ---")
-    print("(Bu işlem birkaç saniye sürebilir...)")
-    
-    # GA'nın bulduğu en iyi çözümü al ve 2-opt ile optimize et
+    print("(Hızlı çalışıyor...)")
     iki_opt_sonucu = iki_opt(global_en_iyi)
     print(f"2-Opt Sonucu En İyi Mesafe: {iki_opt_sonucu.fitness:.2f}")
 
-    # --- 9. Adım (BONUS): 3-Opt İyileştirmesi ---
+    # 9. Bonus: 3-opt
     print("\n--- 3-Opt (Bonus) İyileştirmesi Başlatılıyor ---")
-    print("(BU İŞLEM ÇOK DAHA UZUN SÜREBİLİR! 30sn-1dk...)")
-    
-    # 2-opt'un bulduğu sonucu al ve 3-opt ile optimize et
+    print("(Optimize edildi, hızlı çalışacak...)")
     uc_opt_sonucu = uc_opt(iki_opt_sonucu)
     
     print("\n--- Nihai Sonuç (3-opt Sonrası) ---")
     print(f"Bulunan en iyi mesafe (fitness): {uc_opt_sonucu.fitness:.2f}")
     print("En iyi tur (ID sırası):")
     
-    # 3-opt (nihai) turu yazdır
     tur_sirasi_listesi = [str(sehir.id) for sehir in uc_opt_sonucu.genler]
-    for i in range(0, len(tur_sirasi_listesi), 10):
-        print(" -> ".join(tur_sirasi_listesi[i:i+10]))
+    for i in range(0, len(tur_sirasi_listesi), 15):
+        print(" -> ".join(tur_sirasi_listesi[i:i+15]))
     print("-" * 40)
