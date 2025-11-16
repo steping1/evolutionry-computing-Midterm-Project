@@ -76,6 +76,18 @@ class Kromozom:
              tur_sirasi = " -> ".join([str(sehir.id) for sehir in self.genler[:3]]) + "..." + " -> ".join([str(sehir.id) for sehir in self.genler[-2:]])
 
         return f"[Fitness: {self.fitness:.2f}] | Tur: {tur_sirasi}"
+    
+    def kopyala(self):
+        """
+        Bu kromozomun birebir aynı,
+        ancak bağımsız bir kopyasını oluşturur.
+        """
+        # genler listesinin bir kopyasını al
+        gen_kopyasi = self.genler[:] 
+        
+        # Bu kopya gen listesiyle yeni bir Kromozom nesnesi oluştur
+        # (Bu nesne, __init__ sayesinde kendi fitness'ını hesaplayacaktır)
+        return Kromozom(gen_kopyasi)
 
     def fitness_hesapla(self):
         """
@@ -285,89 +297,101 @@ def slide_mutasyonu(kromozom):
     return kromozom # Değiştirilmiş kromozomu döndür
 
 
-# --- TEST KODLARI (SADECE BURASI ÇALIŞTIRILIR) ---
+# --- 7. ADIM: ANA ALGORİTMA DÖNGÜSÜ ---
 
 if __name__ == "__main__":
     
-    # --- 1. Adım: Dosya Okuma Testi ---
-    print("--- 1. Adım: Dosya Okuma Testi ---")
-    DOSYA_ADI = "berlin52.tsp" 
+    # --- 1. Parametreler ve Hazırlık ---
+    DOSYA_ADI = "berlin52.tsp"
+    POPULASYON_BUYUKLUGU = 100
+    NESIL_SAYISI_LIMITI = 100            # Sonlanma Kriteri 1 [cite: 39]
+    IYILESME_OLMAYAN_LIMIT = 5          # Sonlanma Kriteri 2 [cite: 40]
+
+    print("--- Evrimsel Algoritma Başlatılıyor ---")
+    print(f"Problem: {DOSYA_ADI}")
+    print(f"Popülasyon Büyüklüğü: {POPULASYON_BUYUKLUGU}")
+    print(f"Sonlanma Kriterleri: {NESIL_SAYISI_LIMITI} Nesil VEYA {IYILESME_OLMAYAN_LIMIT} nesil iyileşmeme.")
+    print("-" * 40)
+
+    # 1.1. Şehirleri Oku
     tum_sehirler = dosyadan_oku(DOSYA_ADI)
-    print(f"Toplam şehir sayısı: {len(tum_sehirler)}")
-    print("-" * 30) # Ayraç
+    if not tum_sehirler:
+        print("HATA: Şehirler okunamadı. Program sonlandırılıyor.")
+        exit()
+        
+    # 1.2. İlk Popülasyonu Oluştur
+    mevcut_populasyon = ilk_populasyonu_olustur(tum_sehirler, POPULASYON_BUYUKLUGU)
+    
+    # 1.3. Global en iyi çözümü (pristine copy) sakla
+    global_en_iyi = min(mevcut_populasyon, key=lambda k: k.fitness).kopyala()
+    
+    iyilesmeyen_nesil_sayisi = 0
 
-    
-    # --- 2. Adım: Kromozom ve Fitness Testi ---
-    print("--- 2. Adım: Kromozom ve Fitness Testi ---")
-    
-    if tum_sehirler:
-        sirasal_tur = Kromozom(tum_sehirler)
-        print("Sırasal (Karıştırılmamış) Tur Kromozomu:")
-        print(sirasal_tur) 
-    print("-" * 30) # Ayraç
-
-    
-    # --- 3. Adım: İlk Popülasyon Testi ---
-    print("--- 3. Adım: İlk Popülasyon Testi ---")
-    
-    POPULASYON_BUYUKLUGU = 100 # Proje 100 adet istiyor 
-    
-    if tum_sehirler:
-        ilk_populasyon = ilk_populasyonu_olustur(tum_sehirler, POPULASYON_BUYUKLUGU)
+    # --- 2. Ana Evrim Döngüsü (Iterations) ---
+    for nesil_no in range(1, NESIL_SAYISI_LIMITI + 1):
         
-        print(f"{len(ilk_populasyon)} adet rastgele kromozom oluşturuldu.")
+        # 2.1. Bu neslin en iyisini bul
+        bu_neslin_en_iyisi = min(mevcut_populasyon, key=lambda k: k.fitness)
         
-        # Popülasyondaki ilk 3 kromozomu ve son 2 kromozomu yazdıralım
-        print("\nPopülasyondan bazı örnekler:")
-        print(ilk_populasyon[0])
-        print(ilk_populasyon[1])
-        print(ilk_populasyon[2])
-        print("...")
-        print(ilk_populasyon[-2])
-        print(ilk_populasyon[-1])
-        
-        # En iyi ve en kötü çözümü de bulalım
-        # Python'da 'min' ve 'max' fonksiyonları,
-        # nesneleri 'key' parametresine göre sıralayabilir.
-        en_iyi_cozum = min(ilk_populasyon, key=lambda krom: krom.fitness)
-        en_kotu_cozum = max(ilk_populasyon, key=lambda krom: krom.fitness)
-        
-        print("\nİlk Popülasyon Analizi:")
-        print(f"En İyi Çözüm (En Düşük Mesafe): {en_iyi_cozum.fitness:.2f}")
-        print(f"En Kötü Çözüm (En Yüksek Mesafe): {en_kotu_cozum.fitness:.2f}")
-
-    print("--- 4. Adım: Seçilim Operatörleri Testi ---")
-    if tum_sehirler:
-        ebeveyn1 = rulet_tekeri_secilimi(ilk_populasyon)
-        ebeveyn2 = sira_temelli_secilim(ilk_populasyon)
-        print(f"Ebeveyn 1 (Rulet): {ebeveyn1.fitness:.2f}")
-        print(f"Ebeveyn 2 (Sıra): {ebeveyn2.fitness:.2f}")
-    print("-" * 30) # Ayraç
-    
-
-    # --- 5. Adım: Çaprazlama (Crossover) Testi ---
-    print("--- 5. Adım: Çaprazlama (Crossover) Testi ---")
-    
-    if 'ebeveyn1' in locals() and 'ebeveyn2' in locals():
-        # Ebeveynleri çaprazla
-        cocuk = cycle_crossover(ebeveyn1, ebeveyn2)
-        
-        print("Cycle Crossover (CX) uygulandı.")
-        print("Ortaya çıkan 'Çocuk' kromozomu:")
-        print(cocuk)
-        
-        # Doğrulama: Çocukta 52 şehir var mı? (Hiç şehir kayboldu mu?)
-        # Python'da 'set' yinelenen elemanları kaldırır.
-        # Eğer 'cocuk.genler' listesinde 52 EŞSİZ şehir varsa,
-        # 'set'in boyutu da 52 olacaktır.
-        essiz_sehir_sayisi = len(set(cocuk.genler))
-        print(f"Çocuktaki gen sayısı (şehir): {len(cocuk.genler)}")
-        print(f"Çocuktaki eşsiz şehir sayısı: {essiz_sehir_sayisi}")
-
-        if essiz_sehir_sayisi == len(tum_sehirler):
-            print("Çaprazlama BAŞARILI: Çocuk geçerli bir tur içeriyor.")
+        # 2.2. Global en iyiyi güncelle
+        if bu_neslin_en_iyisi.fitness < global_en_iyi.fitness:
+            global_en_iyi = bu_neslin_en_iyisi.kopyala() # Kopyasını sakla
+            iyilesmeyen_nesil_sayisi = 0 # Sayaç sıfırla
         else:
-            print("Çaprazlama HATALI: Çocuk geçersiz (yinelenen veya eksik şehir var).")
+            iyilesmeyen_nesil_sayisi += 1
+        
+        # 2.3. Çıktı (Proje bunu istiyor) [cite: 41]
+        print(f"Nesil {nesil_no:3} | En İyi Mesafe: {global_en_iyi.fitness:<10.2f} | (İyileşmeyen: {iyilesmeyen_nesil_sayisi})")
+        
+        # 2.4. Sonlanma Kriteri Kontrolü (Hangisi önce gelirse)
+        if iyilesmeyen_nesil_sayisi >= IYILESME_OLMAYAN_LIMIT:
+            print(f"\nSonlanma: {IYILESME_OLMAYAN_LIMIT} nesildir iyileşme olmadı.")
+            break
+        
+        # --- 3. Yeni Popülasyonu Oluşturma ---
+        yeni_populasyon = []
+        
+        # 3.1. Elitizm: En iyi çözümü kopyalayarak doğrudan aktar 
+        yeni_populasyon.append(global_en_iyi.kopyala())
+        
+        # 3.2. Kalan 99 bireyi (çocuğu) üret [cite: 29]
+        while len(yeni_populasyon) < POPULASYON_BUYUKLUGU:
             
-    else:
-        print("Çaprazlama testi için ebeveynler bulunamadı.")
+            # 3.2.1. Ebeveyn Seçimi (50% Rank, 50% Roulette)
+            if len(yeni_populasyon) <= (POPULASYON_BUYUKLUGU / 2):
+                # İlk %50'yi Sıra Temelli (Rank Based) ile seç [cite: 31]
+                ebeveyn1 = sira_temelli_secilim(mevcut_populasyon)
+                ebeveyn2 = sira_temelli_secilim(mevcut_populasyon)
+            else:
+                # Kalan %50'yi Rulet Tekeri (Roulette) ile seç [cite: 32]
+                ebeveyn1 = rulet_tekeri_secilimi(mevcut_populasyon)
+                ebeveyn2 = rulet_tekeri_secilimi(mevcut_populasyon)
+            
+            # 3.2.2. Çaprazlama (Cycle Crossover) [cite: 33]
+            cocuk = cycle_crossover(ebeveyn1, ebeveyn2)
+            
+            # 3.2.3. Mutasyon (50% Insert, 50% Slide)
+            if random.random() < 0.5:
+                # %50 Insert Mutasyonu [cite: 35]
+                insert_mutasyonu(cocuk) 
+            else:
+                # %50 Random Slide Mutasyonu [cite: 36]
+                slide_mutasyonu(cocuk)
+            
+            # 3.2.4. Çocuğu yeni popülasyona ekle
+            yeni_populasyon.append(cocuk)
+            
+        # 3.3. Popülasyonu güncelle
+        mevcut_populasyon = yeni_populasyon
+    
+    # --- 4. Final Sonuçlar ---
+    print("-" * 40)
+    print("Evrimsel Algoritma Tamamlandı.")
+    print(f"Bulunan en iyi mesafe (fitness): {global_en_iyi.fitness:.2f}")
+    print("En iyi tur (ID sırası):")
+    
+    # Turu 10'arlı gruplar halinde yazdır
+    tur_sirasi_listesi = [str(sehir.id) for sehir in global_en_iyi.genler]
+    for i in range(0, len(tur_sirasi_listesi), 10):
+        print(" -> ".join(tur_sirasi_listesi[i:i+10]))
+    print("-" * 40)
