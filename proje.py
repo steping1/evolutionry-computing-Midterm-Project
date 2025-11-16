@@ -375,6 +375,90 @@ def iki_opt(kromozom):
     # optimize edilmiş kopyayı döndür
     return yeni_krom
 
+def uc_opt(kromozom):
+    """
+    Bir kromozoma (tura) 3-opt yerel optimizasyonunu uygular.
+    2-opt'tan çok daha yavaştır ancak daha iyi sonuçlar verebilir.
+    
+    [BONUS +15 PUAN]
+    """
+    yeni_krom = kromozom.kopyala()
+    sehir_sayisi = len(yeni_krom.genler)
+    
+    iyilesme_var = True
+    
+    while iyilesme_var:
+        iyilesme_var = False
+        
+        # Üç kenarı seçmek için üç döngü
+        # (i, i+1), (j, j+1), (k, k+1)
+        for i in range(sehir_sayisi - 4):
+            for j in range(i + 2, sehir_sayisi - 2):
+                for k in range(j + 2, sehir_sayisi):
+                    
+                    # 3 kenarı tanımlayan 6 nokta
+                    A, B = yeni_krom.genler[i], yeni_krom.genler[i+1]
+                    C, D = yeni_krom.genler[j], yeni_krom.genler[j+1]
+                    E, F = yeni_krom.genler[k], yeni_krom.genler[(k+1) % sehir_sayisi] # Son kenar için %N
+                    
+                    # 7 farklı durumu test et (d0 orijinal)
+                    d0 = mesafe_hesapla(A,B) + mesafe_hesapla(C,D) + mesafe_hesapla(E,F)
+                    
+                    # 2-opt durumları (3-opt içinde de bulunur)
+                    d1 = mesafe_hesapla(A,C) + mesafe_hesapla(B,D) + mesafe_hesapla(E,F) # 2-opt (i,j)
+                    d2 = mesafe_hesapla(A,B) + mesafe_hesapla(C,E) + mesafe_hesapla(D,F) # 2-opt (j,k)
+                    d3 = mesafe_hesapla(A,E) + mesafe_hesapla(D,F) + mesafe_hesapla(C,B) # 2-opt (i,k)
+                    
+                    # 3-opt durumları (asıl güçlü olanlar)
+                    d4 = mesafe_hesapla(A,C) + mesafe_hesapla(B,E) + mesafe_hesapla(D,F)
+                    d5 = mesafe_hesapla(A,E) + mesafe_hesapla(D,B) + mesafe_hesapla(C,F)
+                    d6 = mesafe_hesapla(A,D) + mesafe_hesapla(C,E) + mesafe_hesapla(B,F)
+                    d7 = mesafe_hesapla(A,D) + mesafe_hesapla(C,F) + mesafe_hesapla(B,E)
+
+                    
+                    # En iyi değişikliği bul
+                    if d1 < d0:
+                        # 2-opt (i,j) -> [i+1...j] segmentini ters çevir
+                        yeni_krom.genler[i+1 : j+1] = reversed(yeni_krom.genler[i+1 : j+1])
+                        iyilesme_var = True
+                    elif d2 < d0:
+                        # 2-opt (j,k) -> [j+1...k] segmentini ters çevir
+                        yeni_krom.genler[j+1 : k+1] = reversed(yeni_krom.genler[j+1 : k+1])
+                        iyilesme_var = True
+                    elif d3 < d0:
+                        # 2-opt (i,k) -> [i+1...k] segmentini ters çevir
+                        yeni_krom.genler[i+1 : k+1] = reversed(yeni_krom.genler[i+1 : k+1])
+                        iyilesme_var = True
+                    elif d4 < d0:
+                        # 3-opt (A-C B-E D-F)
+                        yeni_krom.genler[i+1 : k+1] = yeni_krom.genler[j+1:k+1] + yeni_krom.genler[i+1:j+1]
+                        iyilesme_var = True
+                    elif d5 < d0:
+                        # 3-opt (A-E D-B C-F)
+                        yeni_krom.genler[i+1 : k+1] = list(reversed(yeni_krom.genler[i+1:j+1])) + list(reversed(yeni_krom.genler[j+1:k+1]))
+                        iyilesme_var = True
+                    elif d6 < d0:
+                        # 3-opt (A-D C-E B-F)
+                        yeni_krom.genler[i+1 : k+1] = list(reversed(yeni_krom.genler[j+1:k+1])) + yeni_krom.genler[i+1:j+1]
+                        iyilesme_var = True
+                    elif d7 < d0:
+                        # 3-opt (A-D C-F B-E)
+                        yeni_krom.genler[i+1 : k+1] = yeni_krom.genler[j+1:k+1] + list(reversed(yeni_krom.genler[i+1:j+1]))
+                        iyilesme_var = True
+
+                    if iyilesme_var:
+                        yeni_krom.fitness_hesapla()
+                        # "First Improvement" stratejisi:
+                        # İyileşme bulunduğu an döngüleri kır ve 
+                        # 'while' başına (en başa) dön
+                        break
+                if iyilesme_var:
+                    break
+            if iyilesme_var:
+                break
+                
+    return yeni_krom
+
 # --- 7. ADIM: ANA ALGORİTMA DÖNGÜSÜ ---
 
 if __name__ == "__main__":
@@ -472,14 +556,22 @@ if __name__ == "__main__":
     print("(Bu işlem birkaç saniye sürebilir...)")
     
     # GA'nın bulduğu en iyi çözümü al ve 2-opt ile optimize et
-    optimize_edilmis_tur = iki_opt(global_en_iyi)
+    iki_opt_sonucu = iki_opt(global_en_iyi)
+    print(f"2-Opt Sonucu En İyi Mesafe: {iki_opt_sonucu.fitness:.2f}")
+
+    # --- 9. Adım (BONUS): 3-Opt İyileştirmesi ---
+    print("\n--- 3-Opt (Bonus) İyileştirmesi Başlatılıyor ---")
+    print("(BU İŞLEM ÇOK DAHA UZUN SÜREBİLİR! 30sn-1dk...)")
     
-    print("\n--- Nihai Sonuç (2-opt Sonrası) ---")
-    print(f"Bulunan en iyi mesafe (fitness): {optimize_edilmis_tur.fitness:.2f}")
+    # 2-opt'un bulduğu sonucu al ve 3-opt ile optimize et
+    uc_opt_sonucu = uc_opt(iki_opt_sonucu)
+    
+    print("\n--- Nihai Sonuç (3-opt Sonrası) ---")
+    print(f"Bulunan en iyi mesafe (fitness): {uc_opt_sonucu.fitness:.2f}")
     print("En iyi tur (ID sırası):")
     
-    # Optimize edilmiş turu yazdır
-    tur_sirasi_listesi = [str(sehir.id) for sehir in optimize_edilmis_tur.genler]
+    # 3-opt (nihai) turu yazdır
+    tur_sirasi_listesi = [str(sehir.id) for sehir in uc_opt_sonucu.genler]
     for i in range(0, len(tur_sirasi_listesi), 10):
         print(" -> ".join(tur_sirasi_listesi[i:i+10]))
     print("-" * 40)
