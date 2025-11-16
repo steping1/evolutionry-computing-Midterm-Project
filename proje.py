@@ -269,8 +269,13 @@ def slide_mutasyonu(kromozom):
     """
     sehir_sayisi = len(kromozom.genler)
     
+    # (Hata önleme: Eğer şehir sayısı çok küçükse, 
+    #  random.sample hata verebilir, 
+    #  gerçi 52 şehirde bu olmaz ama güvenli kod iyidir)
+    if sehir_sayisi < 2:
+        return kromozom 
+
     # 1. Rastgele bir alt-liste (blok) belirle [i...j]
-    # 'random.sample(range(N), 2)' 0-N-1 arası 2 farklı sayı seçer
     indexler = sorted(random.sample(range(sehir_sayisi), 2))
     i = indexler[0]
     j = indexler[1] # j her zaman i'den büyük olacak
@@ -279,16 +284,20 @@ def slide_mutasyonu(kromozom):
     blok = kromozom.genler[i : j+1] # [i...j] arasındaki şehirler
     
     # 2. Bu bloğu turdan çıkar
-    # (Önce arkayı, sonra önü silmek index hatasını engeller)
     del kromozom.genler[i : j+1]
     
     # 3. Bloğu eklemek için yeni bir rastgele pozisyon seç
-    # Kalan gen sayısı (N - (j-i+1)) içinde bir yer seç
-    yeni_pozisyon = random.randrange(len(kromozom.genler))
+    
+    # HATALI KOD:
+    # yeni_pozisyon = random.randrange(len(kromozom.genler))
+    
+    # DÜZELTİLMİŞ KOD:
+    # Kalan listenin uzunluğu 0 bile olsa (len(genler)=0),
+    # randrange(0 + 1) -> randrange(1) -> 0 döndürür.
+    # Bu da bloğun 0. index'e (boş listeye) eklenmesini sağlar.
+    yeni_pozisyon = random.randrange(len(kromozom.genler) + 1)
     
     # 4. Bloğu yeni pozisyona yapıştır
-    # 'list.insert' ile tek tek eklemek yerine, liste dilimleme 
-    # ile tüm bloğu tek seferde ekleyebiliriz:
     kromozom.genler[yeni_pozisyon:yeni_pozisyon] = blok
     
     # 5. ÖNEMLİ: Genler değiştiği için fitness'ı yeniden hesapla
@@ -296,6 +305,75 @@ def slide_mutasyonu(kromozom):
     
     return kromozom # Değiştirilmiş kromozomu döndür
 
+def iki_opt(kromozom):
+    """
+    Bir kromozoma (tura) 2-opt yerel optimizasyonunu uygular.
+    Turda iyileşme kalmayana kadar (lokal optimum) devam eder.
+    
+    """
+    # 1. Kromozomun bağımsız bir kopyasını alalım
+    # (Orijinalini bozmamak en güvenli yoldur)
+    yeni_krom = kromozom.kopyala()
+    sehir_sayisi = len(yeni_krom.genler)
+    
+    # 'iyilesme_var' bayrağı, o turda bir değişiklik 
+    # yapılıp yapılmadığını takip eder
+    iyilesme_var = True
+    
+    while iyilesme_var:
+        iyilesme_var = False # Bu turda iyileşme olmazsa döngü biter
+        
+        # 2. Tüm kenar çiftlerini (i ve j) gez
+        # (Dolanma (wrap-around) kenarını (son->ilk) 
+        #  basitlik için ihmal ediyoruz, ama etkisi büyük olacaktır)
+        
+        for i in range(sehir_sayisi - 2): # i: 0'dan N-3'e
+            for j in range(i + 2, sehir_sayisi - 1): # j: (i+2)'den N-2'ye
+                
+                # Kenar 1: (i) -> (i+1)
+                # Kenar 2: (j) -> (j+1)
+                
+                # Mevcut kenarların şehirleri
+                A = yeni_krom.genler[i]
+                B = yeni_krom.genler[i+1]
+                C = yeni_krom.genler[j]
+                D = yeni_krom.genler[j+1]
+                
+                # 3. İyileşme kontrolü
+                mevcut_mesafe = mesafe_hesapla(A, B) + mesafe_hesapla(C, D)
+                yeni_mesafe = mesafe_hesapla(A, C) + mesafe_hesapla(B, D)
+                
+                if yeni_mesafe < mevcut_mesafe:
+                    # İyileşme bulundu!
+                    # Kenarları değiştir (A-C ve B-D)
+                    # Bunu yapmak için (i+1) ... (j) arasındaki 
+                    # tüm segmenti TERS ÇEVİRmemiz gerekir.
+                    
+                    # [A] -> [B ... C] -> [D]
+                    # Yeni tur:
+                    # [A] -> [C ... B] -> [D]
+                    
+                    yeni_krom.genler[i+1 : j+1] = reversed(yeni_krom.genler[i+1 : j+1])
+                    
+                    # Tur değişti, fitness'ı HESAPLAMALIYIZ
+                    # (Not: Daha hızlı bir yol sadece farkı hesaplamaktır,
+                    #  ancak bu daha güvenli ve okunaklıdır)
+                    yeni_krom.fitness_hesapla()
+                    
+                    # İyileşme olduğunu işaretle
+                    iyilesme_var = True
+                    
+                    # "First Improvement" stratejisi:
+                    # Bir iyileşme bulduğumuz an, 'j' ve 'i' 
+                    # döngülerini kırıp 'while' döngüsüne 
+                    # (en başa) dönüyoruz.
+                    break
+            if iyilesme_var:
+                break
+                
+    # While döngüsü bittiğinde (hiç iyileşme bulunamadığında)
+    # optimize edilmiş kopyayı döndür
+    return yeni_krom
 
 # --- 7. ADIM: ANA ALGORİTMA DÖNGÜSÜ ---
 
@@ -384,14 +462,24 @@ if __name__ == "__main__":
         # 3.3. Popülasyonu güncelle
         mevcut_populasyon = yeni_populasyon
     
-    # --- 4. Final Sonuçlar ---
+  # --- 4. Final Sonuçlar ---
     print("-" * 40)
     print("Evrimsel Algoritma Tamamlandı.")
-    print(f"Bulunan en iyi mesafe (fitness): {global_en_iyi.fitness:.2f}")
+    print(f"GA Sonucu (2-opt öncesi) En İyi Mesafe: {global_en_iyi.fitness:.2f}")
+
+    # --- 8. Adım (BONUS): 2-Opt İyileştirmesi ---
+    print("\n--- 2-Opt (Bonus) İyileştirmesi Başlatılıyor ---")
+    print("(Bu işlem birkaç saniye sürebilir...)")
+    
+    # GA'nın bulduğu en iyi çözümü al ve 2-opt ile optimize et
+    optimize_edilmis_tur = iki_opt(global_en_iyi)
+    
+    print("\n--- Nihai Sonuç (2-opt Sonrası) ---")
+    print(f"Bulunan en iyi mesafe (fitness): {optimize_edilmis_tur.fitness:.2f}")
     print("En iyi tur (ID sırası):")
     
-    # Turu 10'arlı gruplar halinde yazdır
-    tur_sirasi_listesi = [str(sehir.id) for sehir in global_en_iyi.genler]
+    # Optimize edilmiş turu yazdır
+    tur_sirasi_listesi = [str(sehir.id) for sehir in optimize_edilmis_tur.genler]
     for i in range(0, len(tur_sirasi_listesi), 10):
         print(" -> ".join(tur_sirasi_listesi[i:i+10]))
     print("-" * 40)
